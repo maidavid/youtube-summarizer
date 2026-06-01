@@ -1,20 +1,3 @@
-"""
-YouTube Video Summarizer — Streamlit App
-=========================================
-Run with:
-    streamlit run app.py
-
-Requirements:
-    pip install streamlit requests
-
-Set your Groq API key either:
-  - As environment variable:  export GROQ_API_KEY="gsk_..."
-  - Or enter it in the app when running
-
-Get a FREE API key at: https://console.groq.com
-(Free tier: 14,400 requests/day — no credit card needed)
-"""
-
 import re
 import html
 import json
@@ -23,16 +6,12 @@ import xml.etree.ElementTree as ET
 import requests
 import streamlit as st
 
-# youtube-transcript-api gives much better caption coverage (auto-captions, translated, etc.)
 try:
     from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound, TranscriptsDisabled
     _YTA_AVAILABLE = True
 except ImportError:
     _YTA_AVAILABLE = False
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Config file helpers — store API key locally so users never have to retype it
-# ─────────────────────────────────────────────────────────────────────────────
 _CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".yt_summarizer_config.json")
 
 def _load_config() -> dict:
@@ -49,9 +28,6 @@ def _save_config(data: dict):
     except Exception:
         pass
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Page config
-# ─────────────────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="YouTube Summarizer",
     page_icon="🎬",
@@ -59,14 +35,10 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Custom CSS — dark tech, red accent
-# ─────────────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
 
-    /* ── Animations ─────────────────────────────────────────── */
     @keyframes pulse-ring {
         0%   { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.45); }
         70%  { box-shadow: 0 0 0 12px rgba(220, 38, 38, 0); }
@@ -76,16 +48,11 @@ st.markdown("""
         from { opacity: 0; transform: translateY(18px); }
         to   { opacity: 1; transform: translateY(0); }
     }
-    @keyframes dot-pulse {
-        0%, 100% { opacity: 0.3; transform: scale(1); }
-        50%       { opacity: 1;   transform: scale(1.5); }
-    }
     @keyframes shimmer {
         0%   { background-position: -400px 0; }
         100% { background-position: 400px 0; }
     }
 
-    /* ── Global ──────────────────────────────────────────────── */
     html, body,
     [data-testid="stAppViewContainer"],
     [data-testid="stApp"] {
@@ -94,7 +61,6 @@ st.markdown("""
         color: #f0e8e8 !important;
     }
 
-    /* Subtle red dot-grid overlay */
     [data-testid="stAppViewContainer"]::before {
         content: '';
         position: fixed;
@@ -105,7 +71,6 @@ st.markdown("""
         z-index: 0;
     }
 
-    /* ── Content container ───────────────────────────────────── */
     .main .block-container {
         padding-top: 2rem !important;
         padding-bottom: 3rem !important;
@@ -114,14 +79,12 @@ st.markdown("""
         z-index: 1;
     }
 
-    /* ── Hide sidebar toggle + chrome ────────────────────────── */
     [data-testid="stSidebar"]          { display: none !important; }
     [data-testid="collapsedControl"]   { display: none !important; }
     footer, #MainMenu                  { visibility: hidden !important; }
     [data-testid="stHeader"]           { background: transparent !important; }
     [data-testid="stToolbar"]          { display: none !important; }
 
-    /* ── Hero ────────────────────────────────────────────────── */
     .hero-wrapper {
         text-align: center;
         padding: 1.2rem 0 1.8rem;
@@ -158,7 +121,6 @@ st.markdown("""
         margin: 0;
     }
 
-    /* ── Input labels ────────────────────────────────────────── */
     .field-label {
         font-size: 0.72rem;
         font-weight: 700;
@@ -168,7 +130,6 @@ st.markdown("""
         margin-bottom: 0.35rem;
     }
 
-    /* ── Text inputs ─────────────────────────────────────────── */
     .stTextInput > div > div > input {
         background: #150d0d !important;
         border: 1px solid rgba(220,38,38,0.45) !important;
@@ -190,7 +151,6 @@ st.markdown("""
         color: #4a2e2e !important;
     }
 
-    /* ── Buttons ─────────────────────────────────────────────── */
     .stButton > button {
         border-radius: 9px !important;
         font-weight: 700 !important;
@@ -221,7 +181,6 @@ st.markdown("""
         background: rgba(220,38,38,0.1) !important;
     }
 
-    /* ── Progress bar ────────────────────────────────────────── */
     [data-testid="stProgress"] > div > div {
         background: linear-gradient(90deg, #dc2626, #7f1d1d) !important;
         box-shadow: 0 0 10px rgba(220,38,38,0.5) !important;
@@ -233,7 +192,6 @@ st.markdown("""
         height: 4px !important;
     }
 
-    /* ── Instructions card ───────────────────────────────────── */
     .instructions-card {
         background: #140c0c;
         border: 1px solid rgba(220,38,38,0.35);
@@ -275,7 +233,6 @@ st.markdown("""
         display: flex; align-items: center; justify-content: center;
     }
 
-    /* ── Divider ─────────────────────────────────────────────── */
     hr {
         border: none !important;
         height: 1px !important;
@@ -287,14 +244,12 @@ st.markdown("""
         margin: 1.4rem 0 !important;
     }
 
-    /* ── Video card (thumbnail + info) ──────────────────────── */
     [data-testid="stImage"] img {
         border-radius: 10px !important;
         border: 1px solid rgba(220,38,38,0.2) !important;
         box-shadow: 0 4px 24px rgba(0,0,0,0.6) !important;
     }
 
-    /* ── Expander ────────────────────────────────────────────── */
     [data-testid="stExpander"] {
         background: #120a0a !important;
         border: 1px solid rgba(220,38,38,0.4) !important;
@@ -323,7 +278,6 @@ st.markdown("""
         line-height: 1.75 !important;
     }
 
-    /* ── Tabs ────────────────────────────────────────────────── */
     [data-testid="stTabs"] [role="tablist"] {
         background: #160c0c !important;
         border-radius: 12px 12px 0 0 !important;
@@ -366,7 +320,6 @@ st.markdown("""
         box-shadow: 0 8px 32px rgba(0,0,0,0.4) !important;
     }
 
-    /* Timestamps in tabs */
     [data-testid="stTabs"] a code {
         background: rgba(220,38,38,0.18) !important;
         color: #ff8080 !important;
@@ -378,7 +331,6 @@ st.markdown("""
         font-weight: 600 !important;
     }
 
-    /* Blockquotes */
     [data-testid="stTabs"] blockquote {
         border-left: 3px solid #ef4444 !important;
         background: rgba(220,38,38,0.1) !important;
@@ -389,7 +341,6 @@ st.markdown("""
         margin: 0.6rem 0 !important;
     }
 
-    /* ── Raw textarea ────────────────────────────────────────── */
     .stTextArea textarea {
         background: #0e0808 !important;
         border: 1px solid rgba(220,38,38,0.35) !important;
@@ -399,7 +350,6 @@ st.markdown("""
         font-size: 0.77rem !important;
     }
 
-    /* ── Status text ─────────────────────────────────────────── */
     .status-line {
         color: #ff8080;
         font-size: 0.84rem;
@@ -409,7 +359,6 @@ st.markdown("""
         gap: 0.5rem;
     }
 
-    /* ── Scrollbar ───────────────────────────────────────────── */
     ::-webkit-scrollbar { width: 4px; }
     ::-webkit-scrollbar-track { background: #09060a; }
     ::-webkit-scrollbar-thumb { background: rgba(220,38,38,0.35); border-radius: 4px; }
@@ -418,9 +367,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Core logic
-# ─────────────────────────────────────────────────────────────────────────────
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -496,14 +442,11 @@ def get_video_metadata(video_id: str) -> dict:
 
 
 def get_video_info(video_id: str) -> dict:
-    """Scrape description, duration, and chapter markers from the YouTube watch page."""
     result = {"description": "", "duration_seconds": 0, "chapters": []}
     try:
-        url  = f"https://www.youtube.com/watch?v={video_id}"
-        resp = requests.get(url, headers=HEADERS, timeout=15)
+        resp = requests.get(f"https://www.youtube.com/watch?v={video_id}", headers=HEADERS, timeout=15)
         page = resp.text
 
-        # Description
         m = re.search(r'"shortDescription"\s*:\s*"((?:[^"\\]|\\.)*)"', page)
         if m:
             raw = m.group(1)
@@ -511,12 +454,10 @@ def get_video_info(video_id: str) -> dict:
                 raw.replace("\\n", "\n").replace('\\"', '"').replace("\\\\", "\\")
             )
 
-        # Duration (lengthSeconds inside ytInitialPlayerResponse)
         m2 = re.search(r'"lengthSeconds"\s*:\s*"(\d+)"', page)
         if m2:
             result["duration_seconds"] = int(m2.group(1))
 
-        # Chapters (if the creator added them — they appear in the description as timestamps)
         chapter_pattern = re.compile(r'(\d{1,2}:\d{2}(?::\d{2})?)\s+(.+)')
         chapters = []
         for line in result["description"].splitlines():
@@ -530,14 +471,8 @@ def get_video_info(video_id: str) -> dict:
     return result
 
 
-def get_video_description(video_id: str) -> str:
-    """Convenience wrapper kept for backward compat."""
-    return get_video_info(video_id)["description"]
-
-
 def get_caption_tracks(video_id: str) -> list:
-    url  = f"https://www.youtube.com/watch?v={video_id}"
-    resp = requests.get(url, headers=HEADERS, timeout=15)
+    resp = requests.get(f"https://www.youtube.com/watch?v={video_id}", headers=HEADERS, timeout=15)
     resp.raise_for_status()
     page = resp.text
 
@@ -583,8 +518,6 @@ def parse_transcript_xml(xml_text: str) -> list:
 
 
 def _yta_segments(video_id: str) -> list:
-    """Use youtube-transcript-api to fetch segments. Raises on failure."""
-    # Try simple get_transcript first (fastest path)
     for langs in [["en", "en-US", "en-GB"], None]:
         try:
             kwargs = {} if langs is None else {"languages": langs}
@@ -606,16 +539,12 @@ def _yta_segments(video_id: str) -> list:
 
 
 def fetch_transcript(video_id: str) -> list:
-    """Try three methods to get a real transcript, raise RuntimeError('no_captions') if all fail."""
-
-    # ── Method 1: youtube-transcript-api (most reliable) ──────────────────────
     if _YTA_AVAILABLE:
         try:
             return _yta_segments(video_id)
         except Exception:
             pass
 
-    # ── Method 2: manual scraping via ytInitialPlayerResponse ─────────────────
     tracks = get_caption_tracks(video_id)
     if tracks:
         def rank(t):
@@ -636,16 +565,9 @@ def fetch_transcript(video_id: str) -> list:
         except Exception:
             pass
 
-    # ── Method 3: direct timedtext API (catches auto-generated captions) ───────
-    # YouTube's timedtext endpoint works for many videos even when the track
-    # list isn't exposed in the page HTML.
     for lang in ["en", "en-US", "en-GB"]:
-        for kind in ["asr", ""]:   # asr = auto-generated speech recognition
-            params = {
-                "v":    video_id,
-                "lang": lang,
-                "fmt":  "json3",
-            }
+        for kind in ["asr", ""]:
+            params = {"v": video_id, "lang": lang, "fmt": "json3"}
             if kind:
                 params["kind"] = kind
             try:
@@ -657,14 +579,12 @@ def fetch_transcript(video_id: str) -> list:
                 )
                 if r.status_code == 200 and r.text.strip():
                     data = r.json()
-                    events = data.get("events", [])
                     segments = []
-                    for ev in events:
+                    for ev in data.get("events", []):
                         start_ms = ev.get("tStartMs", 0)
                         dur_ms   = ev.get("dDurationMs", 0)
-                        segs     = ev.get("segs", [])
                         text     = html.unescape(
-                            "".join(s.get("utf8", "") for s in segs)
+                            "".join(s.get("utf8", "") for s in ev.get("segs", []))
                         ).strip()
                         if text and text != "\n":
                             segments.append({
@@ -695,7 +615,6 @@ def build_transcript_text(segments: list) -> str:
 
 
 def _call_groq(prompt_text: str, api_key: str, max_tokens: int = 2048) -> str:
-    """Core helper: send a prompt to Groq and return the response text."""
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -724,7 +643,6 @@ def _call_groq(prompt_text: str, api_key: str, max_tokens: int = 2048) -> str:
 
 
 def summarize_with_groq(segments: list, video_url: str, api_key: str) -> str:
-    """Build a chunked transcript and send to Groq for summarization."""
     if not segments:
         raise RuntimeError(
             "No captions could be extracted from this video. "
@@ -739,11 +657,10 @@ def summarize_with_groq(segments: list, video_url: str, api_key: str) -> str:
         current.append(seg["text"])
     if current:
         lines.append(f"[{seconds_to_ts(chunk_start)}] {' '.join(current)}")
-    transcript_text = "\n\n".join(lines)
 
     prompt = (
         f"Summarize this YouTube video.\nURL: {video_url}\n\n"
-        f"--- TRANSCRIPT ---\n{transcript_text}\n--- END ---"
+        f"--- TRANSCRIPT ---\n{chr(10).join(lines)}\n--- END ---"
     )
     return _call_groq(prompt, api_key, max_tokens=2048)
 
@@ -751,7 +668,6 @@ def summarize_with_groq(segments: list, video_url: str, api_key: str) -> str:
 def summarize_from_description(title: str, channel: str, description: str,
                                video_url: str, api_key: str,
                                duration_seconds: int = 0, chapters: list = None) -> str:
-    """Fallback: generate a detailed summary with estimated timestamps from metadata."""
     if not description.strip() and not title.strip():
         raise RuntimeError(
             "No captions or description could be found for this video. "
@@ -761,17 +677,15 @@ def summarize_from_description(title: str, channel: str, description: str,
     chapters = chapters or []
     duration_str = seconds_to_ts(duration_seconds) if duration_seconds else "unknown"
 
-    # Build chapter hints if the creator provided timestamps in the description
     chapter_hint = ""
     if chapters:
         chapter_hint = "\n\nChapter markers found in description:\n" + "\n".join(
             f"  [{c['ts']}] {c['title']}" for c in chapters
         )
 
-    # Build duration hint for evenly-spaced estimated timestamps
     duration_hint = ""
     if duration_seconds and not chapters:
-        n_sections = min(6, max(3, duration_seconds // 120))  # 1 section per ~2 min
+        n_sections = min(6, max(3, duration_seconds // 120))
         step = duration_seconds // n_sections
         duration_hint = (
             f"\n\nThe video is {duration_str} long. "
@@ -822,11 +736,6 @@ def parse_summary_sections(summary: str) -> dict:
     return sections
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# UI
-# ─────────────────────────────────────────────────────────────────────────────
-
-# Hero
 st.markdown("""
 <div class="hero-wrapper">
     <div class="hero-icon">🎬</div>
@@ -835,7 +744,6 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# API key — load from config file, then env var as fallback
 _cfg = _load_config()
 _saved_key   = _cfg.get("groq_api_key", "") or _cfg.get("gemini_api_key", "")
 _env_key     = os.environ.get("GROQ_API_KEY", "")
@@ -860,7 +768,6 @@ with _status_col:
         else:
             st.warning("No key entered.")
 
-# Auto-save if a new key was typed (differs from what's stored)
 if api_key_input and api_key_input != _saved_key:
     _save_config({**_cfg, "groq_api_key": api_key_input})
 
@@ -872,7 +779,6 @@ if _default_key:
         unsafe_allow_html=True,
     )
 
-# URL input
 st.markdown('<div class="field-label" style="margin-top:0.85rem">YouTube URL</div>', unsafe_allow_html=True)
 url_input = st.text_input(
     label="url",
@@ -880,7 +786,6 @@ url_input = st.text_input(
     label_visibility="collapsed",
 )
 
-# Buttons
 col1, col2 = st.columns([5, 1])
 with col1:
     summarize_btn = st.button("▶  Analyze Video", type="primary", use_container_width=True)
@@ -892,7 +797,6 @@ if clear_btn:
     st.session_state.pop("last_url", None)
     st.rerun()
 
-# ── How to use ───────────────────────────────────────────────────────────────
 st.markdown("""
 <div class="instructions-card">
     <div class="instructions-title">How to use</div>
@@ -903,7 +807,7 @@ st.markdown("""
         </div>
         <div class="instruction-step">
             <div class="step-num">2</div>
-            <span>Paste your Gemini API key into the field above — it's <strong style="color:#ff8080">saved automatically</strong> so you only need to do this once</span>
+            <span>Paste your Groq API key into the field above — it's <strong style="color:#ff8080">saved automatically</strong> so you only need to do this once</span>
         </div>
         <div class="instruction-step">
             <div class="step-num">3</div>
@@ -919,9 +823,6 @@ st.markdown("""
 
 st.markdown("---")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Analyze action
-# ─────────────────────────────────────────────────────────────────────────────
 if summarize_btn:
     if not url_input.strip():
         st.warning("Please paste a YouTube URL first.")
@@ -954,7 +855,6 @@ if summarize_btn:
                 status(f"Got {len(segments)} caption segments — sending to Groq…", 65)
                 summary = summarize_with_groq(segments, url_input.strip(), api_key)
             except RuntimeError:
-                # No captions — fall back to description + duration + chapters
                 used_fallback = True
                 status("No captions — analysing video metadata for timestamps…", 52)
                 info = get_video_info(video_id)
@@ -970,11 +870,11 @@ if summarize_btn:
                 )
             progress.progress(100)
 
-            st.session_state["last_summary"]    = summary
-            st.session_state["last_url"]        = url_input.strip()
-            st.session_state["last_meta"]       = meta
-            st.session_state["last_video_id"]   = video_id
-            st.session_state["used_fallback"]   = used_fallback
+            st.session_state["last_summary"]  = summary
+            st.session_state["last_url"]      = url_input.strip()
+            st.session_state["last_meta"]     = meta
+            st.session_state["last_video_id"] = video_id
+            st.session_state["used_fallback"] = used_fallback
 
             msg = "✅  Done — summary based on video description (no captions available)." if used_fallback else "✅  Done — your summary is ready below."
             status_area.success(msg)
@@ -991,16 +891,12 @@ if summarize_btn:
             progress.empty()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Render summary
-# ─────────────────────────────────────────────────────────────────────────────
 if "last_summary" in st.session_state:
     summary  = st.session_state["last_summary"]
     meta     = st.session_state.get("last_meta", {})
     video_id = st.session_state.get("last_video_id", "")
     yt_url   = st.session_state.get("last_url", f"https://www.youtube.com/watch?v={video_id}")
 
-    # Video card
     col_thumb, col_info = st.columns([1, 2])
     with col_thumb:
         st.image(meta.get("thumbnail", ""), use_container_width=True)
@@ -1065,9 +961,6 @@ if "last_summary" in st.session_state:
         st.text_area(label="raw", value=summary, height=320, label_visibility="collapsed")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# PyCharm direct-run support
-# ─────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import subprocess
     import sys
